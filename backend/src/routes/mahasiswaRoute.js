@@ -11,14 +11,17 @@ import {
   getJumlahMahasiswa,
   remove,
   edit,
-  getMahasiswaPerProdi
+  getMahasiswaPerProdi,
+  uploadCsvMahasiswa
 } from "../controllers/mahasiswaController.js";
 import { verifyUser, adminOnly } from "../middleware/authUser.js";
+import { csvUpload } from "../middleware/upload.js";
 
 const router = express.Router();
 
 router.post("/", verifyUser, adminOnly, addMahasiswa);
 router.post("/add-detail", verifyUser, adminOnly, addDetail);
+router.post("/upload-csv", verifyUser, adminOnly, csvUpload.single('file'), uploadCsvMahasiswa);
 router.get("/", verifyUser, adminOnly, list);
 router.get("/get-all-mahasiswa", verifyUser, adminOnly, getAllMahasiswa);
 router.get("/get-all-mahasiswa-count", verifyUser, adminOnly, getAllMahasiswaCount);

@@ -1,10 +1,11 @@
 import bcrypt from "bcrypt";
 import { Mahasiswa, DetailMahasiswa } from "../models/mahasiswa.js";
 import { Op } from "sequelize";
-import path from "path";
 import User from "../models/user.js";
 import Role from "../models/role.js";
 import db from "../config/database.js";
+import csv from "csv-parser";
+import stream from "stream";
 
 const validateEmail = (email) => {
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -131,6 +132,237 @@ export const addMahasiswa = async (req, res) => {
     return res.status(500).json({
       message: "Terjadi kesalahan server",
       error: error.message,
+    });
+  }
+};
+
+export const uploadCsvMahasiswa = async (req, res) => {
+  const transaction = await db.transaction();
+  
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "File CSV harus diupload" });
+    }
+
+    const results = [];
+    const bufferStream = new stream.PassThrough();
+    bufferStream.end(req.file.buffer);
+
+    // Parse CSV
+    await new Promise((resolve, reject) => {
+      bufferStream
+        .pipe(csv({
+          mapHeaders: ({ header }) => header.trim(),
+          mapValues: ({ value }) => value.trim()
+        }))
+        .on('data', (data) => {
+          // Filter hanya field yang memiliki nilai
+          const filteredData = Object.fromEntries(
+            Object.entries(data).filter(([_, value]) => value !== '')
+          );
+          if (Object.keys(filteredData).length > 0) {
+            results.push(filteredData);
+          }
+        })
+        .on('end', resolve)
+        .on('error', reject);
+    });
+
+    if (results.length === 0) {
+      return res.status(400).json({ message: "File CSV kosong atau format tidak valid" });
+    }
+
+    const success = [];
+    const errors = [];
+
+    // Fungsi normalisasi nomor telepon
+    const normalizePhoneNumber = (phone) => {
+      if (!phone) return '';
+      
+      // Hapus semua karakter non-digit
+      let normalized = phone.replace(/\D/g, '');
+      
+      // Jika diawali dengan 62, ubah jadi 0
+      if (normalized.startsWith('62')) {
+        normalized = '0' + normalized.slice(2);
+      }
+      
+      // Jika panjang 10-12 digit tanpa 0, tambahkan 0
+      if (normalized.length >= 10 && normalized.length <= 12 && !normalized.startsWith('0')) {
+        normalized = '0' + normalized;
+      }
+      
+      return normalized;
+    };
+
+    // Fungsi validasi email
+    const validateEmail = (email) => {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      return emailRegex.test(email);
+    };
+
+    // Regex nomor telepon yang lebih fleksibel
+    const phoneRegex = /^(?:\+62|62|0)[0-9]{8,11}$/;
+
+    // Process each row
+    for (let i = 0; i < results.length; i++) {
+      const row = results[i];
+      const rowNumber = i + 2; // +2 karena header di row 1
+
+      try {
+        // Validasi field wajib
+        const requiredFields = [
+          'fullname', 'email', 'phone_number', 'nim', 
+          'jenisKelamin', 'kotaLahir', 'tglLahir', 'agama',
+          'jurusan', 'prodi', 'statusMahasiswa', 'namaOrtuWali',
+          'noHpWali', 'emailWali'
+        ];
+
+        const missingFields = requiredFields.filter(field => !row[field]);
+        if (missingFields.length > 0) {
+          errors.push(`Baris ${rowNumber}: Field wajib kosong - ${missingFields.join(', ')}`);
+          continue;
+        }
+
+        // Normalisasi nomor telepon sebelum validasi
+        row.phone_number = normalizePhoneNumber(row.phone_number);
+        row.noHpWali = normalizePhoneNumber(row.noHpWali);
+
+        // Validasi email
+        if (!validateEmail(row.email)) {
+          errors.push(`Baris ${rowNumber}: Email tidak valid - ${row.email}`);
+          continue;
+        }
+
+        // Validasi email wali
+        if (!validateEmail(row.emailWali)) {
+          errors.push(`Baris ${rowNumber}: Email wali tidak valid - ${row.emailWali}`);
+          continue;
+        }
+
+        // Validasi nomor telepon
+        if (!phoneRegex.test(row.phone_number)) {
+          errors.push(`Baris ${rowNumber}: Nomor telepon tidak valid - ${row.phone_number}`);
+          continue;
+        }
+
+        // Validasi nomor HP wali
+        if (!phoneRegex.test(row.noHpWali)) {
+          errors.push(`Baris ${rowNumber}: Nomor HP wali tidak valid - ${row.noHpWali}`);
+          continue;
+        }
+
+        // Cek duplikasi
+        const existingEmail = await User.findOne({ 
+          where: { email: row.email },
+          transaction 
+        });
+        if (existingEmail) {
+          errors.push(`Baris ${rowNumber}: Email ${row.email} sudah terdaftar`);
+          continue;
+        }
+
+        const existingPhone = await User.findOne({ 
+          where: { phone_number: row.phone_number },
+          transaction 
+        });
+        if (existingPhone) {
+          errors.push(`Baris ${rowNumber}: Nomor telepon ${row.phone_number} sudah terdaftar`);
+          continue;
+        }
+
+        const existingNim = await Mahasiswa.findOne({ 
+          where: { nim: row.nim },
+          transaction 
+        });
+        if (existingNim) {
+          errors.push(`Baris ${rowNumber}: NIM ${row.nim} sudah terdaftar`);
+          continue;
+        }
+
+        // Hashing password (default: 12345678)
+        const salt = bcrypt.genSaltSync(10);
+        const password = bcrypt.hashSync("12345678", salt);
+
+        // Buat User
+        const user = await User.create({
+          fullname: row.fullname,
+          username: row.nim,
+          email: row.email,
+          phone_number: row.phone_number,
+          password: password,
+          role_id: 3,
+          prodiAdmin: "NotProdi",
+          prodiDosen: "NotProdi",
+          status: "active"
+        }, { transaction });
+
+        // Buat Mahasiswa
+        const mahasiswa = await Mahasiswa.create({
+          fullname: row.fullname,
+          userId: user.id,
+          nim: row.nim,
+          jenisKelamin: row.jenisKelamin,
+          kotaLahir: row.kotaLahir,
+          tglLahir: row.tglLahir,
+          agama: row.agama,
+          alamatTerakhir: row.alamatTerakhir || null,
+          kota: row.kota || null,
+          kodePos: row.kodePos || null,
+          angkatan: row.angkatan || null,
+          noTestMasuk: row.noTestMasuk || null,
+          tglTerdaftar: row.tglTerdaftar || null,
+          statusMasukPt: row.statusMasukPt || null,
+          jurusan: row.jurusan,
+          prodi: row.prodi
+        }, { transaction });
+
+        // Buat Detail Mahasiswa
+        await DetailMahasiswa.create({
+          mahasiswaId: mahasiswa.id,
+          statusMahasiswa: row.statusMahasiswa,
+          tahunTamatSmta: row.tahunTamatSmta || null,
+          jurusanDiSmta: row.jurusanDiSmta || null,
+          tglIjazahSmta: row.tglIjazahSmta || null,
+          nilaiUjianAkhirSmta: row.nilaiUjianAkhirSmta || null,
+          namaOrtuWali: row.namaOrtuWali,
+          pendapatanOrtuWali: row.pendapatanOrtuWali || null,
+          alamatWali: row.alamatWali || null,
+          kotaWali: row.kotaWali || null,
+          kodePosWali: row.kodePosWali || null,
+          noHpWali: row.noHpWali,
+          emailWali: row.emailWali
+        }, { transaction });
+
+        success.push(`Baris ${rowNumber}: ${row.nim} - ${row.fullname}`);
+
+      } catch (error) {
+        errors.push(`Baris ${rowNumber}: Error - ${error.message}`);
+      }
+    }
+
+    if (errors.length > 0 && success.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: "Semua data gagal diproses",
+        errors: errors.slice(0, 10) // Batasi jumlah error yang ditampilkan
+      });
+    }
+
+    await transaction.commit();
+
+    res.status(200).json({
+      message: `Upload berhasil: ${success.length} data, Gagal: ${errors.length} data`,
+      success: success,
+      errors: errors.slice(0, 10) // Batasi jumlah error yang ditampilkan
+    });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error("Upload CSV Error:", error);
+    res.status(500).json({
+      message: "Terjadi kesalahan server",
+      error: error.message
     });
   }
 };
@@ -556,37 +788,70 @@ export const addDetail = async (req, res) => {
 };
 
 export const remove = async (req, res) => {
+  const transaction = await db.transaction();
+  
   try {
-    const mahasiswa = await Mahasiswa.findByPk(req.params.id);
+    const { id } = req.params;
 
-    // Hapus relasi
-    await DetailMahasiswa.destroy({ where: { mahasiswaId: mahasiswa.id } });
-    await Mahasiswa.destroy({ where: { id: mahasiswa.id } });
+    // Cari mahasiswa berdasarkan ID
+    const mahasiswa = await Mahasiswa.findOne({
+      where: { id: id },
+      transaction
+    });
 
-    // Hapus user terkait
-    await User.destroy({ where: { id: mahasiswa.userId } });
+    if (!mahasiswa) {
+      await transaction.rollback();
+      return res.status(404).json({ message: "Mahasiswa tidak ditemukan" });
+    }
 
-    return res.status(200).json({ message: "Mahasiswa berhasil dihapus" });
-  } catch (err) {
-    return res.status(500).json({ message: err.message });
+    // Hapus dalam urutan yang benar untuk menghindari constraint error
+    // 1. Hapus detail mahasiswa terlebih dahulu
+    await DetailMahasiswa.destroy({
+      where: { mahasiswaId: mahasiswa.id },
+      transaction
+    });
+
+    // 2. Hapus mahasiswa
+    await Mahasiswa.destroy({
+      where: { id: mahasiswa.id },
+      transaction
+    });
+
+    // 3. Hapus user
+    await User.destroy({
+      where: { id: mahasiswa.userId },
+      transaction
+    });
+
+    await transaction.commit();
+
+    res.status(200).json({
+      message: "Mahasiswa berhasil dihapus",
+      deletedId: id
+    });
+
+  } catch (error) {
+    await transaction.rollback();
+    console.error("Delete Mahasiswa Error:", error);
+    res.status(500).json({
+      message: "Terjadi kesalahan saat menghapus mahasiswa",
+      error: error.message
+    });
   }
 };
 
 export const getMahasiswaPerProdi = async (req, res) => {
   try {
     const result = await Mahasiswa.findAll({
-      attributes: [
-        'prodi',
-        [db.fn('COUNT', db.col('id')), 'jumlah'],
-      ],
-      group: ['prodi'],
+      attributes: ["prodi", [db.fn("COUNT", db.col("id")), "jumlah"]],
+      group: ["prodi"],
       raw: true,
     });
 
-     // Format data untuk Recharts
-    const data = result.map(item => ({
+    // Format data untuk Recharts
+    const data = result.map((item) => ({
       name: item.prodi,
-      value: parseInt(item.jumlah)
+      value: parseInt(item.jumlah),
     }));
 
     res.json(data);
