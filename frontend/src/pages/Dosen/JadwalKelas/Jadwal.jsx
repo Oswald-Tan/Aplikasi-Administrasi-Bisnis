@@ -156,7 +156,7 @@ const Jadwal = () => {
   ];
 
   return (
-    <div className="container mx-auto">
+    <div>
       <div className="bg-white rounded-xl shadow-md p-6 mb-6 border border-gray-200">
         <h1 className="text-2xl font-bold text-gray-800 mb-2">
           Jadwal Kelas {nama_kelas}

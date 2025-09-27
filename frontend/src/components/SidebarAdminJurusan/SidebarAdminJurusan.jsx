@@ -1,17 +1,15 @@
 import React, { useEffect, useState } from "react";
 import {
-  RiSettings4Line,
   RiFileCopy2Line,
   RiHistoryLine,
 } from "react-icons/ri";
 import { TbLayoutDashboard } from "react-icons/tb";
 import { AiOutlineUser } from "react-icons/ai";
-import { LuBell, LuCalendar, LuList } from "react-icons/lu";
+import { LuCalendar, LuList } from "react-icons/lu";
 import { MdKeyboardArrowUp, MdKeyboardArrowDown } from "react-icons/md";
 import { FiLogOut } from "react-icons/fi";
 import { HiOutlineDocumentText } from "react-icons/hi";
 import { useSidebar } from "../../context/useSidebar";
-import { Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { LogOut, reset } from "../../features/authSlice";
 import { useNavigate } from "react-router-dom";
@@ -27,6 +25,8 @@ const SidebarAdminJurusan = () => {
   const { open, toggleSidebar } = useSidebar();
   const [menus, setMenus] = useState([]);
   const [activeSubMenu, setActiveSubMenu] = useState("");
+  const [activeMenu, setActiveMenu] = useState("");
+  const [activeSubMenuItem, setActiveSubMenuItem] = useState("");
   const { isDarkMode, toggleDarkMode } = useDarkMode();
 
   // Tutup semua submenu saat sidebar ditutup
@@ -35,6 +35,34 @@ const SidebarAdminJurusan = () => {
       setActiveSubMenu("");
     }
   }, [open]);
+
+  // Deteksi path saat ini dan atur menu aktif
+  useEffect(() => {
+    const currentPath = location.pathname;
+
+    // Cari menu utama yang aktif
+    const findActiveMenu = () => {
+      for (const menu of menus) {
+        if (menu.hasSubMenu) {
+          const foundSub = menu.subMenu.find((sub) => sub.link === currentPath);
+          if (foundSub) {
+            setActiveMenu(menu.name);
+            // Hanya buka submenu jika sidebar terbuka
+            if (open) {
+              setActiveSubMenu(menu.name);
+            }
+            setActiveSubMenuItem(foundSub.name);
+            return;
+          }
+        } else if (menu.link === currentPath) {
+          setActiveMenu(menu.name);
+          return;
+        }
+      }
+    };
+
+    findActiveMenu();
+  }, [location.pathname, menus, open]);
 
   useEffect(() => {
     if (user?.role === "admin_jurusan") {
@@ -129,6 +157,40 @@ const SidebarAdminJurusan = () => {
     }
   };
 
+  const handleMenuClick = (menu) => {
+    // Jika menu memiliki aksi khusus (seperti toggle dark mode)
+    if (menu.action) {
+      menu.action();
+      setActiveSubMenu(""); // Tutup submenu
+      setActiveSubMenuItem(""); // Reset submenu item aktif
+      return;
+    }
+
+    // Jika menu memiliki submenu
+    if (menu.hasSubMenu) {
+      handleSubMenuClick(menu.name);
+      setActiveMenu(menu.name);
+    }
+    // Jika menu biasa tanpa submenu
+    else if (menu.link) {
+      setActiveMenu(menu.name);
+      setActiveSubMenu(""); // Tutup submenu
+      setActiveSubMenuItem(""); // Reset submenu item aktif
+      navigate(menu.link);
+    }
+  };
+
+  const handleSubMenuItemClick = (menuName, subItemName, link) => {
+    setActiveMenu(menuName);
+    setActiveSubMenuItem(subItemName);
+    navigate(link);
+
+    // Jika sidebar dalam keadaan tertutup (mobile), tutup setelah memilih submenu
+    if (window.innerWidth < 768) {
+      toggleSidebar();
+    }
+  };
+
   return (
     <>
       {open && (
@@ -166,12 +228,18 @@ const SidebarAdminJurusan = () => {
 
             <div className="mt-2 flex flex-col gap-1 relative">
               {menus.map((menu, i) => {
+                const isMenuActive = activeMenu === menu.name;
+
                 if (menu.hasSubMenu) {
                   return (
                     <div key={i} className="">
                       <button
-                        onClick={() => handleSubMenuClick(menu.name)}
-                        className={`group flex items-center justify-between w-full text-sm gap-3.5 font-medium px-2 py-3 hover:bg-[#282828] rounded-xl text-left`}
+                        onClick={() => handleMenuClick(menu)}
+                        className={`group flex items-center justify-between w-full text-sm gap-3.5 font-medium px-2 py-3 rounded-xl text-left ${
+                          isMenuActive
+                            ? "bg-[#3A3A3A] text-white"
+                            : "hover:bg-[#282828]"
+                        }`}
                       >
                         <div className="flex items-center">
                           <div>
@@ -204,27 +272,40 @@ const SidebarAdminJurusan = () => {
                         }`}
                       >
                         <div className="pl-8 py-1 space-y-1">
-                          {menu.subMenu.map((sub, j) => (
-                            <Link
-                              to={sub.link}
-                              key={j}
-                              className="flex items-center text-sm gap-3.5 font-medium px-2 py-2 hover:bg-[#282828] rounded-lg transition-colors duration-200"
-                              onClick={() => !open && toggleSidebar()}
-                            >
-                              <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                              <h2
-                                style={{
-                                  transitionDelay: `${j + 3}00ms`,
-                                }}
-                                className={`whitespace-pre duration-500 ${
-                                  !open &&
-                                  "opacity-0 translate-x-28 overflow-hidden"
+                          {menu.subMenu.map((sub, j) => {
+                            const isSubItemActive =
+                              activeSubMenuItem === sub.name;
+                            return (
+                              <button
+                                key={j}
+                                onClick={() =>
+                                  handleSubMenuItemClick(
+                                    menu.name,
+                                    sub.name,
+                                    sub.link
+                                  )
+                                }
+                                className={`flex items-center w-full text-sm gap-3.5 font-medium px-2 py-2 rounded-lg transition-colors duration-200 ${
+                                  isSubItemActive
+                                    ? "text-white bg-[#3A3A3A]"
+                                    : "text-gray-400 hover:bg-[#282828] hover:text-white"
                                 }`}
                               >
-                                {sub.name}
-                              </h2>
-                            </Link>
-                          ))}
+                                <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
+                                <h2
+                                  style={{
+                                    transitionDelay: `${j + 3}00ms`,
+                                  }}
+                                  className={`whitespace-pre duration-500 ${
+                                    !open &&
+                                    "opacity-0 translate-x-28 overflow-hidden"
+                                  }`}
+                                >
+                                  {sub.name}
+                                </h2>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -234,8 +315,12 @@ const SidebarAdminJurusan = () => {
                 return menu.action ? (
                   <button
                     key={i}
-                    onClick={menu.action}
-                    className={`group flex items-center text-sm gap-3.5 font-medium px-2 py-3 hover:bg-[#282828] rounded-xl w-full text-left`}
+                    onClick={() => handleMenuClick(menu)}
+                    className={`group flex items-center text-sm gap-3.5 font-medium px-2 py-3 rounded-xl w-full text-left ${
+                      isMenuActive
+                        ? "bg-[#3A3A3A] text-white"
+                        : "hover:bg-[#282828]"
+                    }`}
                   >
                     <div>{React.createElement(menu.icon, { size: "20" })}</div>
                     <h2
@@ -250,10 +335,14 @@ const SidebarAdminJurusan = () => {
                     </h2>
                   </button>
                 ) : (
-                  <Link
-                    to={menu.link}
+                  <button
+                    onClick={() => handleMenuClick(menu)}
                     key={i}
-                    className={`group flex items-center text-sm gap-3.5 font-medium px-2 py-3 hover:bg-[#282828] rounded-xl`}
+                    className={`group flex items-center text-sm gap-3.5 font-medium px-2 py-3 rounded-xl w-full text-left ${
+                      isMenuActive
+                        ? "bg-[#3A3A3A] text-white"
+                        : "hover:bg-[#282828]"
+                    }`}
                   >
                     <div>{React.createElement(menu.icon, { size: "20" })}</div>
                     <h2
@@ -266,7 +355,7 @@ const SidebarAdminJurusan = () => {
                     >
                       {menu.name}
                     </h2>
-                  </Link>
+                  </button>
                 );
               })}
             </div>

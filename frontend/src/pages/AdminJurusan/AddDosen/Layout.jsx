@@ -431,7 +431,7 @@ const Layout = () => {
 
             <button
               type="button"
-              onClick={() => navigate("/mahasiswa")}
+              onClick={() => navigate("/users/all/dosen")}
               className="ml-2 px-4 py-2 bg-gray-300 text-gray-700 text-sm font-semibold rounded-md shadow hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
             >
               Batal

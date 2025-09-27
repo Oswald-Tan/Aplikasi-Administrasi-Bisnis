@@ -424,7 +424,12 @@ const Layout = () => {
                               tooltip="Detail"
                             />
                             <ButtonAction
-                              to={`/surat/${item.id}/download`}
+                              onClick={() =>
+                                window.open(
+                                  `${API_URL}/surat/${item.id}/download`,
+                                  "_blank"
+                                )
+                              }
                               icon={<MdDownload size={16} />}
                               className="bg-green-600 hover:bg-green-700"
                               tooltip="Download"

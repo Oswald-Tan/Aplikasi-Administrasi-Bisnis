@@ -10,10 +10,12 @@ import {
   MdDelete,
   MdSearch,
   MdKeyboardArrowDown,
+  MdUpload,
 } from "react-icons/md";
 import { GrPowerReset } from "react-icons/gr";
 import { BiSolidUserDetail, BiStats } from "react-icons/bi";
 import ReactPaginate from "react-paginate";
+import ModalUploadCSV from "../../../components/ModalUploadCSV";
 
 const Layout = () => {
   const [users, setUsers] = useState([]);
@@ -27,6 +29,7 @@ const Layout = () => {
   const [typingTimeout, setTypingTimeout] = useState(null);
   const [tableLoading, setTableLoading] = useState(false);
   const [initialLoad, setInitialLoad] = useState(true);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   const changePage = ({ selected }) => {
     setPage(selected);
@@ -168,7 +171,7 @@ const Layout = () => {
       confirmButtonText: "Yes, delete it!",
     }).then(async (result) => {
       if (result.isConfirmed) {
-        await axios.delete(`${API_URL}/users/user/${userId}`);
+        await axios.delete(`${API_URL}/mahasiswa/${userId}`);
         getUsers();
 
         Swal.fire({
@@ -193,6 +196,15 @@ const Layout = () => {
             icon={<RiApps2AddFill />}
             width={"min-w-[120px] "}
             className={"bg-purple-500 hover:bg-purple-600"}
+          />
+
+           <Button
+            text="Upload CSV"
+            onClick={() => setIsUploadModalOpen(true)}
+            iconPosition="left"
+            icon={<MdUpload />}
+            width={"min-w-[120px] "}
+            className={"bg-green-500 hover:bg-green-600"}
           />
         </div>
 
@@ -383,6 +395,12 @@ const Layout = () => {
           )}
         </div>
       )}
+
+      <ModalUploadCSV
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onSuccess={getUsers} // Refresh data setelah upload berhasil
+      />
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import { Outlet } from "react-router-dom";
 import Navbar from "../components/Navbar";
 import { useSidebar } from "../context/useSidebar";
-import SidebarDosen from "../components/SidebarDosen/SidebarAdmin";
+import SidebarDosen from "../components/SidebarDosen/SidebarDosen";
 
 const currentYear = new Date().getFullYear();
 
